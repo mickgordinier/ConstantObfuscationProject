@@ -51,7 +51,10 @@ namespace {
 
   template <typename T>
   T extendKey(int8_t key, int multiple);
-  Function* insertDeobfuscate(Module& M, LLVMContext &C, int32_t key);
+  template <typename T>
+  Function* insertIntDeobfuscateFunc(Module& M, LLVMContext &C, Type* intTy, T key);
+  template<typename T>
+  void deobfuscate(llvm::GlobalVariable &global, Function* deobfuscateFunc, Type* intTy, T key);
 
 
   struct HW2CorrectnessPass : public PassInfoMixin<HW2CorrectnessPass> {
@@ -76,7 +79,10 @@ namespace {
       int32_t key32Bit = extendKey<int32_t>(key8Bit, 4);
       int64_t key64Bit = extendKey<int64_t>(key8Bit, 8);
 
-      Function* deobfuscateFunc = insertDeobfuscate(M, M.getContext(), key32Bit);
+      Function* deobfuscateFunc8 = insertIntDeobfuscateFunc(M, M.getContext(), Type::getInt8Ty(M.getContext()), key8Bit);
+      Function* deobfuscateFunc16 = insertIntDeobfuscateFunc(M, M.getContext(), Type::getInt16Ty(M.getContext()), key16Bit);
+      Function* deobfuscateFunc32 = insertIntDeobfuscateFunc(M, M.getContext(), Type::getInt32Ty(M.getContext()), key32Bit);
+      Function* deobfuscateFunc64 = insertIntDeobfuscateFunc(M, M.getContext(), Type::getInt64Ty(M.getContext()), key64Bit);
 
       // Iterate through all of the global variables in the module
       for (llvm::GlobalVariable &global : M.globals()) {
@@ -86,10 +92,15 @@ namespace {
         ++totalGlobal;
         
         bool isConstant = global.isConstant();
-        isConstant = true;
+        isConstant = true; // clang optimizes const values out so doesn't work.
         bool hasInitializer = global.hasInitializer();
         bool isIntegerType = global.getValueType()->isIntegerTy();
         bool isDefaultVisibility = global.hasDefaultVisibility();
+        if(auto *constArray = llvm::dyn_cast<llvm::ConstantDataArray>(global.getInitializer())){
+          if (constArray->isString()){
+            //Finds strings
+          }
+        }
         
         if (!(isConstant && 
           hasInitializer && 
@@ -111,15 +122,19 @@ namespace {
         if (type->isIntegerTy(8)) {
           int8_t encryptedVal = originalVal ^ key8Bit;
           newValue = llvm::ConstantInt::get(llvm::Type::getInt8Ty(global.getContext()), encryptedVal);
+          deobfuscate(global, deobfuscateFunc8, llvm::Type::getInt8Ty(global.getContext()), key8Bit);
         } else if (type->isIntegerTy(16)) {
           int16_t encryptedVal = originalVal ^ key16Bit;
           newValue = llvm::ConstantInt::get(llvm::Type::getInt16Ty(global.getContext()), encryptedVal);
+          deobfuscate(global, deobfuscateFunc16, llvm::Type::getInt16Ty(global.getContext()), key16Bit);
         } else if (type->isIntegerTy(32)) {
           int32_t encryptedVal = originalVal ^ key32Bit;
           newValue = llvm::ConstantInt::get(llvm::Type::getInt32Ty(global.getContext()), encryptedVal);
+          deobfuscate(global, deobfuscateFunc32, llvm::Type::getInt32Ty(global.getContext()), key32Bit);
         } else if (type->isIntegerTy(64)) {
           int64_t encryptedVal = originalVal ^ key64Bit;
           newValue = llvm::ConstantInt::get(llvm::Type::getInt64Ty(global.getContext()), encryptedVal);
+          deobfuscate(global, deobfuscateFunc64, llvm::Type::getInt64Ty(global.getContext()), key64Bit);
         } else {
           exit(1);
         }
@@ -128,33 +143,6 @@ namespace {
         errs() << "Modified global variable: " << global.getName() << ", New Value: " 
        << cast<ConstantInt>(global
         .getInitializer())->getSExtValue() << "\n";
-
-
-
-        // result = result ^= hardCodedKeyExtended;
-        // errs() << "DECRYPTED RESULT: " << result << "\n\n";
-        // Go through uses
-        std::vector<Instruction *> globalUsers;
-        for(auto U: global.users()){
-          Instruction *inst = dyn_cast<Instruction>(U);
-          if(!inst) continue;
-          globalUsers.push_back(inst);
-        }
-        for(Instruction* inst: globalUsers){
-          for (unsigned i = 0; i < inst->getNumOperands(); ++i) {
-            if (inst->getOperand(i) == &global) {
-
-                IRBuilder<> builder(inst);
-                Value *ptr = builder.CreateAlloca(Type::getInt32Ty(M.getContext()), nullptr, "ptr");
-                Value *replacement = builder.CreateCall(deobfuscateFunc, {&global, ptr}, "transformed");
-                inst->print(errs());
-                errs() << "\n";
-                inst->setOperand(i, ptr);
-                inst->print(errs());
-                errs() << "\n";
-            }
-        }
-        }
       }
 
       errs() << "\nTotal Global Variables: " << totalGlobal;
@@ -181,14 +169,17 @@ namespace {
     }
     return extendedKey;
   }
-  Function* insertDeobfuscate(Module &M, LLVMContext &C, int32_t key){
-    FunctionType *funcType = FunctionType::get(Type::getInt32Ty(C), 
-                                               {PointerType::getUnqual(Type::getInt32Ty(C)), PointerType::getUnqual(Type::getInt32Ty(C))}, 
+  // Inserts deobfuscation function into compiled code for undoing XOR of ints against hard-coded value
+  template<typename T>
+  Function* insertIntDeobfuscateFunc(Module &M, LLVMContext &C, Type* intTy, T key){
+    PointerType* intPtrTy = PointerType::getUnqual(intTy);
+    FunctionType *funcType = FunctionType::get(intTy, 
+                                               {intPtrTy, intPtrTy}, 
                                                false);
 
     Function *func = Function::Create(funcType, 
                                       Function::ExternalLinkage, 
-                                      "deobfuscate", 
+                                      "deobfuscate_" + std::to_string(intTy->getIntegerBitWidth()), 
                                       M);
     Function::arg_iterator args = func->arg_begin();
     Value *encryptedValLoc = args++;
@@ -200,7 +191,7 @@ namespace {
     IRBuilder<> builder(entry);
 
     // Example: return a + b;
-    Value *encryptedVal = builder.CreateLoad(Type::getInt32Ty(C), encryptedValLoc, "encryptedVal");
+    Value *encryptedVal = builder.CreateLoad(intTy, encryptedValLoc, "encryptedVal");
     Value *result = builder.CreateXor(encryptedVal, key, "result");
     Value *resultLoc = builder.CreateStore(result, ptr);
     builder.CreateRet(result);
@@ -208,6 +199,39 @@ namespace {
     verifyFunction(*func);
 
     return func;
+  };
+  // Adds call to deobfuscation function into compiled code for undoing XOR of ints against hard-coded value
+  template<typename T>
+  void deobfuscate(llvm::GlobalVariable &global, Function* deobfuscateFunc, Type* intTy, T key){
+      std::vector<Instruction *> globalUsers;
+      for(auto U: global.users()){
+        Instruction *inst = dyn_cast<Instruction>(U);
+        if(!inst) continue;
+        globalUsers.push_back(inst);
+      }
+      // TODO: Check if variable updates itself -> need to set value to deobfuscated value apply change and then reobfuscate? Or some other way to keep track
+      for(Instruction* inst: globalUsers){
+        if (auto *store = dyn_cast<StoreInst>(inst)) {
+          Value* ptrOperand = store->getPointerOperand();
+          // Handles when g is updated -> computes store and then stores reobfuscated value
+          if(ptrOperand == &global){
+            IRBuilder<> builder(store);
+            Value *ptr = builder.CreateAlloca(intTy, nullptr, "ptr");
+            Value *storeLoc = builder.CreateStore(store->getValueOperand(), ptr);
+            Value *replacement = builder.CreateCall(deobfuscateFunc, {ptr, ptr}, "reobfuscated_val");
+            store->setOperand(0, replacement);
+            continue;
+          }
+        }
+        for (unsigned i = 0; i < inst->getNumOperands(); ++i) {
+          if (inst->getOperand(i) == &global) {
+              IRBuilder<> builder(inst);
+              Value *ptr = builder.CreateAlloca(intTy, nullptr, "ptr");
+              Value *replacement = builder.CreateCall(deobfuscateFunc, {&global, ptr}, "deobfuscated_val");
+              inst->setOperand(i, ptr);
+          }
+      }
+    }
   };
 }
 
@@ -219,10 +243,6 @@ extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK llvmGetPassPluginIn
         [](StringRef Name, ModulePassManager &FPM,
         ArrayRef<PassBuilder::PipelineElement>) {
             FPM.addPass(HW2CorrectnessPass());
-          // if(Name == "fplicm-performance"){
-          //   FPM.addPass(HW2PerformancePass());
-          //   return true;
-          // }
           return true;
         }
       );
