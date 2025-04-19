@@ -34,4 +34,4 @@ fi
 
 # Cleanup: Remove this if you want to retain the created files (for example, for viz.sh). 
 # And you do need to.
-rm -f *.bc
+# rm -f *.bc
