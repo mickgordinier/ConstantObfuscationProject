@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC  -Wl,--gc-sections -shared  -o ObfuscationPass.so CMakeFiles/ObfuscationPass.dir/obfuscationPass.cpp.o  -Wl,-rpath,"\$ORIGIN/../lib:" 

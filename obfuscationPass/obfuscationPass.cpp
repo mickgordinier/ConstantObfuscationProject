@@ -7,10 +7,6 @@
 //
 //===---------------------------------------------------------------------===//
 //
-// EECS583 W25 - This pass can be used as a template for your FPLICM homework
-//               assignment.
-//               The passes get registered as "fplicm-correctness" and
-//               "fplicm-performance".
 //
 //
 ////===-------------------------------------------------------------------===//
@@ -60,12 +56,6 @@ namespace {
   struct HW2CorrectnessPass : public PassInfoMixin<HW2CorrectnessPass> {
 
     PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
-      // llvm::BlockFrequencyAnalysis::Result &bfi = FAM.getResult<BlockFrequencyAnalysis>(F);
-      // llvm::BranchProbabilityAnalysis::Result &bpi = FAM.getResult<BranchProbabilityAnalysis>(F);
-      // llvm::LoopAnalysis::Result &li = FAM.getResult<LoopAnalysis>(F);
-
-      /* *******Implementation Starts Here******* */
-      // Your core logic should reside here.
 
       // Add deobfuscationFunction
 
@@ -242,7 +232,9 @@ extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK llvmGetPassPluginIn
       PB.registerPipelineParsingCallback(
         [](StringRef Name, ModulePassManager &FPM,
         ArrayRef<PassBuilder::PipelineElement>) {
+          if(Name == "obfuscation-global"){
             FPM.addPass(HW2CorrectnessPass());
+          }
           return true;
         }
       );

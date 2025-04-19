@@ -1,0 +1,30 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build HW2Pass",
+            "type": "shell",
+            "command": "cd ${workspaceFolder}/build && make && cd ${workspaceFolder}/benchmarks/correctness && sh run.sh ${input:benchmarkToDebug}",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+    {
+      "id": "benchmarkToDebug",
+      "type": "pickString",
+      "description": "Benchmark to debug",
+      "options": [
+        "hw2correct1",
+        "hw2correct2",
+        "hw2correct3",
+        "hw2correct4",
+        "hw2correct5",
+        "hw2correct6"
+      ]
+    }
+  ]
+}
