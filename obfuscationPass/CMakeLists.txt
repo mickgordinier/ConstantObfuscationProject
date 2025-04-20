@@ -1,1 +1,1 @@
-add_llvm_pass_plugin(ObfuscationPass obfuscationPass.cpp)
+add_llvm_pass_plugin(ObfuscationPass obfuscationPass.cpp obfuscationPassStringCeasar.cpp)

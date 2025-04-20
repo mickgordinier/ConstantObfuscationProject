@@ -42,6 +42,8 @@
 #include <queue>
 /* *******Implementation Ends Here******* */
 
+#include "allObfuscationPasses.h"
+
 // #define DEBUG
 
 using namespace llvm;
@@ -71,31 +73,53 @@ namespace {
       if (n > 1) factors.push_back(n);
       return factors;
     }
-    
-    PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
 
+    // Adds call to deobfuscation function into compiled code for undoing XOR of prime factors
+    template<typename T>
+    void deobfuscatePrime(llvm::GlobalVariable &globalVec, llvm::GlobalVariable &primeFactors, Function* deobfuscateFunc, Type* intTy, T key){
+        std::vector<Instruction *> globalUsers;
+        for(auto U: global.users()){
+          Instruction *inst = dyn_cast<Instruction>(U);
+          if(!inst) continue;
+          globalUsers.push_back(inst);
+        }
+        // TODO: Check if variable updates itself -> need to set value to deobfuscated value apply change and then reobfuscate? Or some other way to keep track
+        for(Instruction* inst: globalUsers){
+          // if (auto *store = dyn_cast<StoreInst>(inst)) {
+          //   Value* ptrOperand = store->getPointerOperand();
+          //   // Handles when g is updated -> computes store and then stores reobfuscated value
+          //   if(ptrOperand == &global){
+          //     IRBuilder<> builder(store);
+          //     Value *ptr = builder.CreateAlloca(intTy, nullptr, "ptr");
+          //     Value *storeLoc = builder.CreateStore(store->getValueOperand(), ptr);
+          //     Value *replacement = builder.CreateCall(deobfuscateFunc, {ptr, ptr}, "reobfuscated_val");
+          //     store->setOperand(0, replacement);
+          //     continue;
+          //   }
+          // }
+          for (unsigned i = 0; i < inst->getNumOperands(); ++i) {
+            if (inst->getOperand(i) == &global) {
+                IRBuilder<> builder(inst);
+                Value *ptr = builder.CreateAlloca(intTy, nullptr, "ptr");
+                Value *replacement = builder.CreateCall(deobfuscateFuncPrime, {&primeFactors, ptr}, "deobfuscated_val");
+                inst->setOperand(i, ptr);
+            }
+        }
+      }
+    }
+    
+    PreservedAnalyses runPrime(Module &M, ModuleAnalysisManager &AM){
       // Add deobfuscationFunction
 
       int totalGlobal = 0;
       int totalValidInts = 0;
 
-      
-      
       // Hard coded key for user to set
       int8_t key8Bit = 0x55;
-
-      int16_t key16Bit = extendKey<int16_t>(key8Bit, 2);
       int32_t key32Bit = extendKey<int32_t>(key8Bit, 4);
-      int64_t key64Bit = extendKey<int64_t>(key8Bit, 8);
-      Function* deobfuscateFunc8 = insertIntDeobfuscateFunc(M, M.getContext(), Type::getInt8Ty(M.getContext()), key8Bit);
-      Function* deobfuscateFunc16 = insertIntDeobfuscateFunc(M, M.getContext(), Type::getInt16Ty(M.getContext()), key16Bit);
-      Function* deobfuscateFunc32 = insertIntDeobfuscateFunc(M, M.getContext(), Type::getInt32Ty(M.getContext()), key32Bit);
-      Function* deobfuscateFunc64 = insertIntDeobfuscateFunc(M, M.getContext(), Type::getInt64Ty(M.getContext()), key64Bit);
       Function* deobfuscateFuncPrime = insertPrimeDeobfuscateFunc(M, M.getContext(), Type::getInt32Ty(M.getContext()), key32Bit);
       // Iterate through all of the global variables in the module
       for (llvm::GlobalVariable &global : M.globals()) {
-
-
 
         global.print(errs());
         errs() << "\n";
@@ -123,7 +147,6 @@ namespace {
           Constant* encryptedFactor = ConstantInt::get(Type::getInt32Ty(M.getContext()), factor ^ key32Bit); // TODO: Change baseed on type
           encryptedFactors.push_back(encryptedFactor);
         }
-        Constant *VecInit = ConstantVector::get(encryptedFactors);
 
         unsigned tableSize = encryptedFactors.size(); 
         // get the element type (i32 or i64 depending on your global)
@@ -131,8 +154,10 @@ namespace {
         // Build an [tableSize x elemTy] array type:
         ArrayType *arrTy = ArrayType::get(elemTy, factors.size());
 
+        Constant *arrInit = ConstantArray::get(arrTy, encryptedFactors);
+
         // Define global variable
-        GlobalVariable* *encArrGV = new GlobalVariable(
+        GlobalVariable *encArrGV = new GlobalVariable(
           M,                 // Module&
           arrTy,             // Type*   <-- your array type
           false,             // isConstant?
@@ -141,10 +166,58 @@ namespace {
           global.getName() + ".pf"
         );
 
-        deobfuscatePrime(GlobalVec, deobfuscateFuncPrime, llvm::Type::getInt32Ty(global.getContext()), key32Bit);
+        deobfuscatePrime(global, *encArrGV, deobfuscateFuncPrime, llvm::Type::getInt32Ty(encArrGV->getContext()), key32Bit);
+      }
+
+      errs() << "\nTotal Global Variables: " << totalGlobal;
+      errs() << "\nTotal Valid Ints Variables: " << totalValidInts << "\n\n";
+      
+      /* *******Implementation Ends Here******* */
+      // Your pass is modifying the source code. Figure out which analyses
+      // are preserved and only return those, not all.
+      return PreservedAnalyses::none();
+    }
+
+    PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
+
+      // Add deobfuscationFunction
+
+      int totalGlobal = 0;
+      int totalValidInts = 0;
+
+      
+      
+      // Hard coded key for user to set
+      int8_t key8Bit = 0x55;
+
+      int16_t key16Bit = extendKey<int16_t>(key8Bit, 2);
+      int32_t key32Bit = extendKey<int32_t>(key8Bit, 4);
+      int64_t key64Bit = extendKey<int64_t>(key8Bit, 8);
+      Function* deobfuscateFunc8 = insertIntDeobfuscateFunc(M, M.getContext(), Type::getInt8Ty(M.getContext()), key8Bit);
+      Function* deobfuscateFunc16 = insertIntDeobfuscateFunc(M, M.getContext(), Type::getInt16Ty(M.getContext()), key16Bit);
+      Function* deobfuscateFunc32 = insertIntDeobfuscateFunc(M, M.getContext(), Type::getInt32Ty(M.getContext()), key32Bit);
+      Function* deobfuscateFunc64 = insertIntDeobfuscateFunc(M, M.getContext(), Type::getInt64Ty(M.getContext()), key64Bit);
+
+      // Iterate through all of the global variables in the module
+      for (llvm::GlobalVariable &global : M.globals()) {
+
+        global.print(errs());
+        errs() << "\n";
         
+        ++totalGlobal;
+        bool hasInitializer = global.hasInitializer();
+        bool isIntegerType = global.getValueType()->isIntegerTy();
+        bool isDefaultVisibility = global.hasDefaultVisibility();
 
+        if (!(hasInitializer && isIntegerType && isDefaultVisibility)) {
+          continue;
+        }
 
+        ++totalValidInts;
+        
+        int64_t originalVal = cast<ConstantInt>(global.getInitializer())->getSExtValue();
+        errs() << "Initialized constant integer found with value: " << originalVal << "\n";
+        llvm::Type *type = global.getValueType();
 
         ConstantInt *newValue;
 
@@ -213,21 +286,21 @@ namespace {
       Value *count  = argsIt++; count->setName("count");
       Value *outPtr = argsIt++; outPtr->setName("outPtr");
 
-      // Value *encryptedValLoc = args++;
-      // encryptedValLoc->setName("encryptedValLoc");
-      // Value *ptr = args++;
-      // ptr->setName("ptr");
+      Value *encryptedValLoc = args++;
+      encryptedValLoc->setName("encryptedValLoc");
+      Value *ptr = args++;
+      ptr->setName("ptr");
   
-      // BasicBlock *entry = BasicBlock::Create(C, "entry", func);
-      // IRBuilder<> builder(entry);
+      BasicBlock *entry = BasicBlock::Create(C, "entry", func);
+      IRBuilder<> builder(entry);
   
-      // // Example: return a + b;
-      // Value *encryptedVal = builder.CreateLoad(intTy, encryptedValLoc, "encryptedVal");
-      // Value *result = builder.CreateXor(encryptedVal, key, "result");
-      // Value *resultLoc = builder.CreateStore(result, ptr);
-      // builder.CreateRet(result);
+      // Example: return a + b;
+      Value *encryptedVal = builder.CreateLoad(intTy, encryptedValLoc, "encryptedVal");
+      Value *result = builder.CreateXor(encryptedVal, key, "result");
+      Value *resultLoc = builder.CreateStore(result, ptr);
+      builder.CreateRet(result);
   
-      // verifyFunction(*func);
+      verifyFunction(*func);
   
       return func;
     };
@@ -263,16 +336,6 @@ namespace {
   
       return func;
     };
-    // Adds call to deobfuscation function into compiled code for undoing XOR of prime factors
-    template<typename T>
-    void deobfuscatePrime(llvm::GlobalVariable &global, Function* deobfuscateFunc, Type* intTy, T key){
-      std::vector<Instruction *> globalUsers;
-      for(auto U: global.users()){
-        Instruction *inst = dyn_cast<Instruction>(U);
-        if(!inst) continue;
-        globalUsers.push_back(inst);
-      }
-    }
 
     // Adds call to deobfuscation function into compiled code for undoing XOR of ints against hard-coded value
     template<typename T>
@@ -309,7 +372,7 @@ namespace {
     };
   };
 
-  struct ObfuscationPassString : public PassInfoMixin<ObfuscationPassString> {
+  struct ObfuscationPassStringXOR : public PassInfoMixin<ObfuscationPassStringXOR> {
     // Hard coded key to for user to set
     int8_t key8bit = 0x55;
     std::set<GlobalVariable *> globalStr;
@@ -496,195 +559,7 @@ namespace {
       return func;
     }
   };
-
-  struct ObfuscationPassStringCeasar : public PassInfoMixin<ObfuscationPassStringCeasar> {
-    
-    // Hard coded shift for user to set
-    int8_t SHIFT_AMT = 5;
-
-    PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
-      
-      // Create the string deobfuscation ceasar function for the module
-      // NOT A CALL TO THE FUNCTION ITSELF
-      Function* deobfuscateStringFunc = insertDeobfuscateStringCeasarFunction(M);
-      
-      // Iterate through all of the global variables in the module
-      for (llvm::GlobalVariable &global : M.globals()) {
-
-        // Constant variables can be ignored due to the constant folding that occurs automatically
-        bool isConstant = global.isConstant();
-        bool hasInitializer = global.hasInitializer();
-        if(isConstant || !hasInitializer) continue;
-
-        // Makes sure that the data type is an array as all C-strings are arrays
-        if(auto *constArray = llvm::dyn_cast<llvm::ConstantDataArray>(global.getInitializer())){
-
-          // Looking for C-strings (NOT C++ Strings) as we can determine location of \0 character
-          if (!constArray->isCString()) continue;
-            
-          global.print(errs());
-          errs() << "\n";
-          
-          // Get the string values
-          StringRef str = constArray->getAsString();
-          int strlen = str.size();
-          std::string obfuscated;
-
-          //Obfuscate the strings based on characters
-          for(int i = 0; i < strlen - 1; i++){
-            obfuscated.push_back(str[i] + SHIFT_AMT);
-          }
-
-          // Reinsert null terminator at the end and converts it to llvm stsring
-          auto *newArray = ConstantDataArray::getString(global.getContext(), obfuscated, true);
-          newArray->print(errs());
-          errs() << "\n";
-
-          // Reassigns string to obfuscated string
-          global.setInitializer(newArray);
-
-          global.setConstant(false);
-
-          // Going through each use of the string we are obfuscation
-          // Allocates similar size buffer equal length inside of the main function
-          // Passes the address of the allocated space to place the decrypted function
-          deobfuscateStringCeasar(global, deobfuscateStringFunc);
-        }
-      }
-      return PreservedAnalyses::none();
-    }
-
-    // Inserting the deobfuscate function
-    void deobfuscateStringCeasar(llvm::GlobalVariable &global, Function* deobfuscateStringFunc){
-      
-      // Going through and storing all of the global variable's users
-      std::vector<Instruction *> globalUsers;
-      for(auto U: global.users()){
-        if (Instruction *inst = dyn_cast<Instruction>(U)) {
-          globalUsers.push_back(inst);
-        } else if (ConstantExpr *cexpr = dyn_cast<ConstantExpr>(U)) {
-          for (User *ceu : cexpr->users()) {
-              if (Instruction *instUser = dyn_cast<Instruction>(ceu)) {
-                  globalUsers.push_back(instUser);
-              }
-          }
-        }
-      }
-      
-      // Going through all of the instructions that use the obfuscated global variable value
-      for(Instruction* inst: globalUsers){
-        
-        if (auto *store = dyn_cast<StoreInst>(inst)) {
-          IRBuilder<> builder(store);
-          
-          // Handles when g is updated -> computes store and then stores reobfuscated value
-          if(isa<Constant>(store->getValueOperand())){
-            ConstantInt *encryptedChar = ConstantInt::get(Type::getInt8Ty(global.getContext()), dyn_cast<ConstantInt>(store->getValueOperand())->getZExtValue() ^ SHIFT_AMT);
-            store->setOperand(0, encryptedChar);
-          } else{
-            Value* encryptedChar = builder.CreateXor(store->getValueOperand(), SHIFT_AMT);
-            store->setOperand(0, encryptedChar);
-          }
-
-          continue;
-        }
-
-        // Going through each operand that might contain the global variable
-        // If found, creating stack space for deobfuscated value and making new call to deobfuscateValue
-        for (unsigned i = 0; i < inst->getNumOperands(); ++i) {
-          if (inst->getOperand(i) == &global) {
-            IRBuilder<> builder(inst);
-            int strlen = llvm::dyn_cast<llvm::ConstantDataArray>(global.getInitializer())->getAsString().size();
-            llvm::Value *strlenValue = llvm::ConstantInt::get(llvm::Type::getInt32Ty(global.getContext()), strlen);
-            Value *ptr = builder.CreateAlloca(Type::getInt8Ty(global.getContext()), strlenValue, "ptr");
-            builder.CreateCall(deobfuscateStringFunc, {&global, strlenValue, ptr});
-            inst->setOperand(i, ptr);
-          }
-        }
-      }
-    }
-
-    // Create the string deobfuscation function for the module
-    // NOT A CALL TO THE FUNCTION ITSELF
-    Function* insertDeobfuscateStringCeasarFunction(Module &M) {
-      
-      LLVMContext &Ctx = M.getContext();
-
-      // Creating an i8* pointer type
-      llvm::PointerType* intPtr = llvm::PointerType::getUnqual(Type::getInt8Ty(Ctx));
-      
-      // Function type: void deobfuscate(i8*, i32, i8*)
-      // i8* - Pointer to the current obfuscated string buffer
-      // i32 - Length of string
-      // i8* - Pointer to the buffer where we want to store the deobfuscated value
-      FunctionType *funcType = FunctionType::get(
-          Type::getVoidTy(Ctx),
-          {intPtr, Type::getInt32Ty(Ctx), intPtr},
-          false
-      );
-
-      // Creating the function decleration for the ceasar deobfuscation
-      Function *func = Function::Create(
-          funcType,                         // Passing the return and parameter types
-          Function::ExternalLinkage,
-          "deobfuscate_string_ceasar",      // Name of the function
-          M                                 // Module function will be located in
-      );
-
-      // Create the BBs for the entire function body
-      BasicBlock *loopPreheader = BasicBlock::Create(Ctx, "loopPreheader", func);
-      BasicBlock *loopHeader = BasicBlock::Create(Ctx, "loopHeader", func); 
-      BasicBlock *loopBody = BasicBlock::Create(Ctx, "loopBody", func);
-      BasicBlock *loopExit = BasicBlock::Create(Ctx, "loopExit", func);
-
-      // Obtaining the value for all the arguments
-      Function::arg_iterator it = func->arg_begin();
-      Value *strArg = it++;
-      strArg->setName("str");
-      Value *lenArg = it++;
-      lenArg->setName("len");
-      Value *resultPtr = it++;
-      resultPtr->setName("resultPtr");
-      
-      // Creating the instructions for the function body, with BB "loopPreheader" as entry point
-      IRBuilder<> builder(loopPreheader);
-
-      // Placing instructions at loopPreheader BB
-      // Creates i32 on the stack and initializes it to 0 (For currentIdx)
-      // Creates value %lenMinusOne = sub i32 %len, 1     (Want len-1 because we want to ignore null char)
-      // Unconditionally branches to loopHeader BB
-      Value *iAlloca = builder.CreateAlloca(Type::getInt32Ty(Ctx));
-      builder.CreateStore(ConstantInt::get(Type::getInt32Ty(Ctx), 0), iAlloca);
-      llvm::Value *lenMinusOne = builder.CreateSub(lenArg, llvm::ConstantInt::get(lenArg->getType(), 1), "lenMinusOne");
-      builder.CreateBr(loopHeader);
-
-      // Starts inserting all new instructions in loopHeader BB
-      builder.SetInsertPoint(loopHeader);
-      Value *currentIdx = builder.CreateLoad(Type::getInt32Ty(Ctx), iAlloca);                    // currentIdx = iAlloca
-      Value *cond = builder.CreateICmpSLT(currentIdx, lenMinusOne);                              // cond = currentIdx < lenMinusOne
-      builder.CreateCondBr(cond, loopBody, loopExit);                                            // br (cond) loopBody loopEdit
-
-      // Starts inserting all new instructions in loopBody BB
-      builder.SetInsertPoint(loopBody);
-      Value *ptr = builder.CreateGEP(Type::getInt8Ty(Ctx), strArg, currentIdx);                  // ptr = &strArg[currentIdx]
-      Value *ct = builder.CreateLoad(Type::getInt8Ty(Ctx), ptr);                                 // ct = *ptr
-      Value *pt = builder.CreateSub(ct, ConstantInt::get(Type::getInt8Ty(Ctx), SHIFT_AMT));      // pt = ct - SHIFT_AMT
-      Value *resultPtrElement = builder.CreateGEP(Type::getInt8Ty(Ctx), resultPtr, currentIdx);  // resultPtrElement = &resultPtr[currentIdx]
-      builder.CreateStore(pt, resultPtrElement);                                                 // *resultPtrElement = pt
-      Value *next = builder.CreateAdd(currentIdx, ConstantInt::get(Type::getInt32Ty(Ctx), 1));   // currentIdx++
-      builder.CreateStore(next, iAlloca);                                                        // iAlloca = currentIdx
-      builder.CreateBr(loopHeader);                                                              // b loopHeader
-
-      // Starts inserting all new instructions in loopExit BB
-      builder.SetInsertPoint(loopExit);
-      Value *lastElement = builder.CreateGEP(Type::getInt8Ty(Ctx), resultPtr, currentIdx);       // lastElement = &resultPtr[lenMinusOne]
-      builder.CreateStore(ConstantInt::get(Type::getInt8Ty(Ctx), 0), lastElement);               // *lastElement = '\0'
-      builder.CreateRetVoid();                                                                   // reutrn void
-
-      verifyFunction(*func);
-      return func;
-    }
-  };
+  
 }
 
 
@@ -698,8 +573,8 @@ extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK llvmGetPassPluginIn
           if(Name == "obfuscation-int"){
             FPM.addPass(ObfuscationPassInteger());
           }
-          if(Name == "obfuscation-string"){
-            FPM.addPass(ObfuscationPassString());
+          if(Name == "obfuscation-string-xor"){
+            FPM.addPass(ObfuscationPassStringXOR());
           }
           if(Name == "obfuscation-string-ceasar"){
             FPM.addPass(ObfuscationPassStringCeasar());
