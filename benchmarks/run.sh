@@ -7,7 +7,7 @@
 PATH2LIB="../build/obfuscationPass/ObfuscationPass.so"        # Specify your build directory in the project
 
 # ACTION NEEDED: Choose the correct pass when running.
-PASS=obfuscation-string
+PASS=obfuscation-string-ceasar
 
 rm -f default.profraw *_prof *_obfuscation *.bc *.profdata *_output *.ll
 

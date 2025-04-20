@@ -12,17 +12,19 @@ char str[] = "Hello, World!";
 // }
 
 int main(){
-	int i = 0, k = 0;
-	if(z == 12){
-		g+=2;
-	}
-	else {
-		g++;
-	}
-	z = g;
-	for(int i = 0; i < 10; i++){
-		k+=g;
-	}
-	if(k > 10) return 1;
+
+	printf("%s\n", str);
+	// int i = 0, k = 0;
+	// if(z == 12){
+	// 	g+=2;
+	// }
+	// else {
+	// 	g++;
+	// }
+	// z = g;
+	// for(int i = 0; i < 10; i++){
+	// 	k+=g;
+	// }
+	// if(k > 10) return 1;
 	return 0;
 }
