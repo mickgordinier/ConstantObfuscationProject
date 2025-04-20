@@ -9,7 +9,6 @@ PATH2LIB="../build/obfuscationPass/ObfuscationPass.so"        # Specify your bui
 # ACTION NEEDED: Choose the correct pass when running.
 PASS=obfuscation-string
 
-
 rm -f default.profraw *_prof *_obfuscation *.bc *.profdata *_output *.ll
 
 clang -emit-llvm -c ${1}.c -Xclang -O0 -fno-optimize-sibling-calls -o ${1}.bc
