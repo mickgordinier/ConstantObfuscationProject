@@ -34,6 +34,7 @@
 #include "llvm/Transforms/Scalar/LoopUnrollPass.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IR/Type.h"
+#include "llvm/IR/DerivedTypes.h"
 
 
 #include <unordered_map>
@@ -123,16 +124,23 @@ namespace {
           encryptedFactors.push_back(encryptedFactor);
         }
         Constant *VecInit = ConstantVector::get(encryptedFactors);
+
+        unsigned tableSize = encryptedFactors.size(); 
+        // get the element type (i32 or i64 depending on your global)
+        IntegerType *elemTy = cast<IntegerType>(global.getValueType());  
+        // Build an [tableSize x elemTy] array type:
+        ArrayType *arrTy = ArrayType::get(elemTy, factors.size());
+
         // Define global variable
-        VectorType *VecTy = VectorType::get(Type::getInt32Ty(M.getContext()), encryptedFactors.size());
-        GlobalVariable *GlobalVec = new GlobalVariable(
-            M,
-            VecTy,
-            /*isConstant=*/false,
-            GlobalValue::ExternalLinkage,
-            VecInit,
-            "factors"
+        GlobalVariable* *encArrGV = new GlobalVariable(
+          M,                 // Module&
+          arrTy,             // Type*   <-- your array type
+          false,             // isConstant?
+          GlobalValue::PrivateLinkage,
+          arrInit,
+          global.getName() + ".pf"
         );
+
         deobfuscatePrime(GlobalVec, deobfuscateFuncPrime, llvm::Type::getInt32Ty(global.getContext()), key32Bit);
         
 
