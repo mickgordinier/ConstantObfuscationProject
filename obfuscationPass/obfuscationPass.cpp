@@ -33,6 +33,8 @@
 #include "llvm/IR/InstIterator.h"
 #include "llvm/Transforms/Scalar/LoopUnrollPass.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/IR/Type.h"
+
 
 #include <unordered_map>
 #include <sstream>
@@ -44,16 +46,13 @@
 using namespace llvm;
 
 namespace {
-
-  template <typename T>
-  T extendKey(int8_t key, int multiple);
-  template <typename T>
-  Function* insertIntDeobfuscateFunc(Module& M, LLVMContext &C, Type* intTy, T key);
-  template<typename T>
-  void deobfuscate(llvm::GlobalVariable &global, Function* deobfuscateFunc, Type* intTy, T key);
-
-
-  struct HW2CorrectnessPass : public PassInfoMixin<HW2CorrectnessPass> {
+  struct ObfuscationPassInteger : public PassInfoMixin<ObfuscationPassInteger> {
+    // template <typename T>
+    // T extendKey(int8_t key, int multiple);
+    // template <typename T>
+    // Function* insertIntDeobfuscateFunc(Module& M, LLVMContext &C, Type* intTy, T key);
+    // template<typename T>
+    // void deobfuscate(llvm::GlobalVariable &global, Function* deobfuscateFunc, Type* intTy, T key);
 
     PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
 
@@ -80,22 +79,11 @@ namespace {
         errs() << "\n";
         
         ++totalGlobal;
-        
-        bool isConstant = global.isConstant();
-        isConstant = true; // clang optimizes const values out so doesn't work.
         bool hasInitializer = global.hasInitializer();
         bool isIntegerType = global.getValueType()->isIntegerTy();
         bool isDefaultVisibility = global.hasDefaultVisibility();
-        if(auto *constArray = llvm::dyn_cast<llvm::ConstantDataArray>(global.getInitializer())){
-          if (constArray->isString()){
-            //Finds strings
-          }
-        }
-        
-        if (!(isConstant && 
-          hasInitializer && 
-          isIntegerType && 
-              isDefaultVisibility)) {
+
+        if (!(hasInitializer && isIntegerType && isDefaultVisibility)) {
           continue;
         }
 
@@ -137,93 +125,190 @@ namespace {
 
       errs() << "\nTotal Global Variables: " << totalGlobal;
       errs() << "\nTotal Valid Ints Variables: " << totalValidInts << "\n\n";
-
-      
       
       /* *******Implementation Ends Here******* */
       // Your pass is modifying the source code. Figure out which analyses
       // are preserved and only return those, not all.
       return PreservedAnalyses::none();
     }
-  };
-
-  template <typename T>
-  T extendKey(int8_t key, int multiple) {
-
-    T extendedKey;
-
-    int i;
-    for (i = 0; i < multiple; ++i) {
-      extendedKey <<= 8;
-      extendedKey |= key;
-    }
-    return extendedKey;
-  }
-  // Inserts deobfuscation function into compiled code for undoing XOR of ints against hard-coded value
-  template<typename T>
-  Function* insertIntDeobfuscateFunc(Module &M, LLVMContext &C, Type* intTy, T key){
-    PointerType* intPtrTy = PointerType::getUnqual(intTy);
-    FunctionType *funcType = FunctionType::get(intTy, 
-                                               {intPtrTy, intPtrTy}, 
-                                               false);
-
-    Function *func = Function::Create(funcType, 
-                                      Function::ExternalLinkage, 
-                                      "deobfuscate_" + std::to_string(intTy->getIntegerBitWidth()), 
-                                      M);
-    Function::arg_iterator args = func->arg_begin();
-    Value *encryptedValLoc = args++;
-    encryptedValLoc->setName("encryptedValLoc");
-    Value *ptr = args++;
-    ptr->setName("ptr");
-
-    BasicBlock *entry = BasicBlock::Create(C, "entry", func);
-    IRBuilder<> builder(entry);
-
-    // Example: return a + b;
-    Value *encryptedVal = builder.CreateLoad(intTy, encryptedValLoc, "encryptedVal");
-    Value *result = builder.CreateXor(encryptedVal, key, "result");
-    Value *resultLoc = builder.CreateStore(result, ptr);
-    builder.CreateRet(result);
-
-    verifyFunction(*func);
-
-    return func;
-  };
-  // Adds call to deobfuscation function into compiled code for undoing XOR of ints against hard-coded value
-  template<typename T>
-  void deobfuscate(llvm::GlobalVariable &global, Function* deobfuscateFunc, Type* intTy, T key){
-      std::vector<Instruction *> globalUsers;
-      for(auto U: global.users()){
-        Instruction *inst = dyn_cast<Instruction>(U);
-        if(!inst) continue;
-        globalUsers.push_back(inst);
+    template <typename T>
+    T extendKey(int8_t key, int multiple) {
+  
+      T extendedKey;
+  
+      int i;
+      for (i = 0; i < multiple; ++i) {
+        extendedKey <<= 8;
+        extendedKey |= key;
       }
-      // TODO: Check if variable updates itself -> need to set value to deobfuscated value apply change and then reobfuscate? Or some other way to keep track
-      for(Instruction* inst: globalUsers){
-        if (auto *store = dyn_cast<StoreInst>(inst)) {
-          Value* ptrOperand = store->getPointerOperand();
-          // Handles when g is updated -> computes store and then stores reobfuscated value
-          if(ptrOperand == &global){
-            IRBuilder<> builder(store);
-            Value *ptr = builder.CreateAlloca(intTy, nullptr, "ptr");
-            Value *storeLoc = builder.CreateStore(store->getValueOperand(), ptr);
-            Value *replacement = builder.CreateCall(deobfuscateFunc, {ptr, ptr}, "reobfuscated_val");
-            store->setOperand(0, replacement);
-            continue;
+      return extendedKey;
+    }
+    // Inserts deobfuscation function into compiled code for undoing XOR of ints against hard-coded value
+    template<typename T>
+    Function* insertIntDeobfuscateFunc(Module &M, LLVMContext &C, Type* intTy, T key){
+      PointerType* intPtrTy = PointerType::getUnqual(intTy);
+      FunctionType *funcType = FunctionType::get(intTy, 
+                                                 {intPtrTy, intPtrTy}, 
+                                                 false);
+  
+      Function *func = Function::Create(funcType, 
+                                        Function::ExternalLinkage, 
+                                        "deobfuscate_" + std::to_string(intTy->getIntegerBitWidth()), 
+                                        M);
+      Function::arg_iterator args = func->arg_begin();
+      Value *encryptedValLoc = args++;
+      encryptedValLoc->setName("encryptedValLoc");
+      Value *ptr = args++;
+      ptr->setName("ptr");
+  
+      BasicBlock *entry = BasicBlock::Create(C, "entry", func);
+      IRBuilder<> builder(entry);
+  
+      // Example: return a + b;
+      Value *encryptedVal = builder.CreateLoad(intTy, encryptedValLoc, "encryptedVal");
+      Value *result = builder.CreateXor(encryptedVal, key, "result");
+      Value *resultLoc = builder.CreateStore(result, ptr);
+      builder.CreateRet(result);
+  
+      verifyFunction(*func);
+  
+      return func;
+    };
+    // Adds call to deobfuscation function into compiled code for undoing XOR of ints against hard-coded value
+    template<typename T>
+    void deobfuscate(llvm::GlobalVariable &global, Function* deobfuscateFunc, Type* intTy, T key){
+        std::vector<Instruction *> globalUsers;
+        for(auto U: global.users()){
+          Instruction *inst = dyn_cast<Instruction>(U);
+          if(!inst) continue;
+          globalUsers.push_back(inst);
+        }
+        // TODO: Check if variable updates itself -> need to set value to deobfuscated value apply change and then reobfuscate? Or some other way to keep track
+        for(Instruction* inst: globalUsers){
+          if (auto *store = dyn_cast<StoreInst>(inst)) {
+            Value* ptrOperand = store->getPointerOperand();
+            // Handles when g is updated -> computes store and then stores reobfuscated value
+            if(ptrOperand == &global){
+              IRBuilder<> builder(store);
+              Value *ptr = builder.CreateAlloca(intTy, nullptr, "ptr");
+              Value *storeLoc = builder.CreateStore(store->getValueOperand(), ptr);
+              Value *replacement = builder.CreateCall(deobfuscateFunc, {ptr, ptr}, "reobfuscated_val");
+              store->setOperand(0, replacement);
+              continue;
+            }
+          }
+          for (unsigned i = 0; i < inst->getNumOperands(); ++i) {
+            if (inst->getOperand(i) == &global) {
+                IRBuilder<> builder(inst);
+                Value *ptr = builder.CreateAlloca(intTy, nullptr, "ptr");
+                Value *replacement = builder.CreateCall(deobfuscateFunc, {&global, ptr}, "deobfuscated_val");
+                inst->setOperand(i, ptr);
+            }
+        }
+      }
+    };
+  };
+
+  struct ObfuscationPassString : public PassInfoMixin<ObfuscationPassString> {
+
+    PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM) {
+
+      // Iterate through all of the global variables in the module
+      for (llvm::GlobalVariable &global : M.globals()) {
+        if(auto *constArray = llvm::dyn_cast<llvm::ConstantDataArray>(global.getInitializer())){
+          if (constArray->isString()){
+            // Finds strings
+            int8_t key8Bit = 0x55;
+            bool hasInitializer = global.hasInitializer();
+            std::string originalVal = constArray->getAsString().str();
+            std::string xorStr;
+            for (char c : originalVal)
+              xorStr += c ^ key8Bit;
+
+            auto *xorArray = ConstantDataArray::getString(M.getContext(), xorStr, true);
+            // TODO: THIS IS A TYPE MISMATCH
+            global.setInitializer(xorArray);
           }
         }
-        for (unsigned i = 0; i < inst->getNumOperands(); ++i) {
-          if (inst->getOperand(i) == &global) {
-              IRBuilder<> builder(inst);
-              Value *ptr = builder.CreateAlloca(intTy, nullptr, "ptr");
-              Value *replacement = builder.CreateCall(deobfuscateFunc, {&global, ptr}, "deobfuscated_val");
-              inst->setOperand(i, ptr);
-          }
       }
+      return PreservedAnalyses::none();
     }
+    
+    // Creating a funtion decleration
+    template<typename T>
+    void insertDeobfuscateFunction(Module &M) {
+      
+      LLVMContext &Ctx = M.getContext();
+
+      /* CREATING FUNCTION DECLERATION */
+  
+      // Defines Function Decleration and args type: void deobfuscate(i8*, i32)
+      FunctionType *funcType = FunctionType::get(
+          Type::getVoidTy(Ctx),                                                 // Return type void
+          {PointerType::get(Type::getInt8Ty(Ctx), 0), Type::getInt32Ty(Ctx)},   // Pointer to string and size of string
+          false
+      );
+      
+      // Creates function decleration
+      Function *func = Function::Create(
+          funcType,
+          Function::ExternalLinkage,
+          "deobfuscateString",
+          M
+      );
+
+      /* DEFINING FUNCTION BODY BASIC BLOCKS */
+
+      //Create necessary blocks
+      //Entry: Initializes loop counter variable "i"
+      BasicBlock *entry = BasicBlock::Create(Ctx, "entry", func);
+      //Loop: Checks if i < strlen
+      BasicBlock *loop = BasicBlock::Create(Ctx, "loop", func);
+      //Body: Does XOR and then increments loop counter
+      BasicBlock *body = BasicBlock::Create(Ctx, "body", func);
+      //Exit: Hit when loop finished
+      BasicBlock *exit = BasicBlock::Create(Ctx, "exit", func);
+
+      /* CREATING FUNCTION BODY */
+  
+      IRBuilder<> builder(entry);
+
+      // Name args
+      auto args = func->args();
+      Function::arg_iterator it = func->arg_begin();
+      Value *strArg = it++;
+      strArg->setName("str");
+      Value *lenArg = it++;
+      lenArg->setName("strlen");
+
+      // int i = 0;
+      Value *iAlloca = builder.CreateAlloca(Type::getInt32Ty(Ctx));
+      builder.CreateStore(0, iAlloca);
+      builder.CreateBr(loop);
+
+      // if (i < strlen) goto body else exit loop
+      builder.SetInsertPoint(loop);
+      Value *iVal = builder.CreateLoad(Type::getInt32Ty(Ctx), iAlloca, "i");
+      Value *cond = builder.CreateICmpSLT(iVal, lenArg);
+      builder.CreateCondBr(cond, body, exit);
+
+      // Loads character byte XORs it and then stores change; i++;
+      builder.SetInsertPoint(body);
+      Value *ptr = builder.CreateGEP(Type::getInt8Ty(Ctx), strArg, iVal);
+      Value *c = builder.CreateLoad(Type::getInt8Ty(Ctx), ptr);
+      Value *xorC = builder.CreateXor(c, ConstantInt::get(Type::getInt8Ty(Ctx), 0x55));
+      builder.CreateStore(xorC, ptr);
+      Value *next = builder.CreateAdd(iVal, ConstantInt::get(Type::getInt32Ty(Ctx), 1));
+      builder.CreateStore(next, iAlloca);
+      builder.CreateBr(loop);
+  
+      builder.SetInsertPoint(exit);
+      builder.CreateRetVoid();
+      verifyFunction(*func);
+  }  
   };
 }
+
 
 extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK llvmGetPassPluginInfo() {
   return {
@@ -232,8 +317,11 @@ extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK llvmGetPassPluginIn
       PB.registerPipelineParsingCallback(
         [](StringRef Name, ModulePassManager &FPM,
         ArrayRef<PassBuilder::PipelineElement>) {
-          if(Name == "obfuscation-global"){
-            FPM.addPass(HW2CorrectnessPass());
+          if(Name == "obfuscation-int"){
+            FPM.addPass(ObfuscationPassInteger());
+          }
+          if(Name == "obfuscation-string"){
+            FPM.addPass(ObfuscationPassString());
           }
           return true;
         }
