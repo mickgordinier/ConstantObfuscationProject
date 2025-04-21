@@ -573,6 +573,9 @@ extern "C" ::llvm::PassPluginLibraryInfo LLVM_ATTRIBUTE_WEAK llvmGetPassPluginIn
           if(Name == "obfuscation-int"){
             FPM.addPass(ObfuscationPassInteger());
           }
+          if(Name == "obfuscation-int-baseten"){
+            FPM.addPass(obfuscationPassIntBaseTen());
+          }
           if(Name == "obfuscation-string-xor"){
             FPM.addPass(ObfuscationPassStringXOR());
           }

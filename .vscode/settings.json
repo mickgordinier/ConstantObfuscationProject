@@ -61,7 +61,8 @@
     "thread": "cpp",
     "cinttypes": "cpp",
     "typeinfo": "cpp",
-    "*.def": "cpp"
+    "*.def": "cpp",
+    "obfuscationpassintbaseten": "cpp"
   }
   // Automatically configure CMake when opening a project workspace (saves you from having to run the CMake: Configure command)
   // "cmake.configureOnOpen": true, 
