@@ -4,6 +4,9 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/IR/Verifier.h"
+#include <cstdint>
+#include <climits>
+
 
 #include <random>
 #include <vector>
@@ -28,19 +31,80 @@ using namespace llvm;
   // Takes the original integer values of the global variables and finds their obfuscated version
   // Most significant digit not obfuscated -> I.E. 100 could become 155 but the 1 remains static
   // Addresses issue where the first digit might be obfuscated to a 0 -> resulting in diff value
-  static int64_t encrypt(int64_t originalValue){
+  static int64_t encrypt64(int64_t originalValue){
+    if(originalValue == INT64_MIN) return 0;
     int64_t mult = 1;
     int64_t newVal = 0;
     if(originalValue < 0) {
       originalValue *= -1;
       mult = -1;
     }
-    while(originalValue >= 10){
-      newVal += digits[(originalValue % 10)] * mult;
+    while(originalValue != 0){
+      int64_t add = digits[(originalValue % 10)] * mult;
+      if (originalValue < 10) add = (originalValue % 10) * mult;
+      if(mult > 0 && newVal > INT64_MAX - add) return 0;
+      if(mult < 0 && newVal < INT64_MIN - add) return 0;
+      newVal += add;
       originalValue /= 10;
       mult *= 10;
     }
-    newVal += (originalValue % 10) * mult;
+    return newVal;
+  }
+  static int64_t encrypt32(int64_t originalValue){
+    if(originalValue == INT32_MIN) return 0;
+    int64_t mult = 1;
+    int64_t newVal = 0;
+    if(originalValue < 0) {
+      originalValue *= -1;
+      mult = -1;
+    }
+    while(originalValue != 0){
+      int64_t add = digits[(originalValue % 10)] * mult;
+      if (originalValue < 10) add = (originalValue % 10) * mult;
+      if(mult > 0 && newVal > INT32_MAX - add) return 0;
+      if(mult < 0 && newVal < INT32_MIN - add) return 0;
+      newVal += add;
+      originalValue /= 10;
+      mult *= 10;
+    }
+    return newVal;
+  }
+  static int64_t encrypt16(int64_t originalValue){
+    if(originalValue == INT16_MIN) return 0;
+    int64_t mult = 1;
+    int64_t newVal = 0;
+    if(originalValue < 0) {
+      originalValue *= -1;
+      mult = -1;
+    }
+    while(originalValue != 0){
+      int64_t add = digits[(originalValue % 10)] * mult;
+      if (originalValue < 10) add = (originalValue % 10) * mult;
+      if(mult > 0 && newVal > INT16_MAX - add) return 0;
+      if(mult < 0 && newVal < INT16_MIN - add) return 0;
+      newVal += add;
+      originalValue /= 10;
+      mult *= 10;
+    }
+    return newVal;
+  }
+  static int64_t encrypt8(int64_t originalValue){
+    if(originalValue == INT8_MIN) return 0;
+    int64_t mult = 1;
+    int64_t newVal = 0;
+    if(originalValue < 0) {
+      originalValue *= -1;
+      mult = -1;
+    }
+    while(originalValue != 0){
+      int64_t add = digits[(originalValue % 10)] * mult;
+      if (originalValue < 10) add = (originalValue % 10) * mult;
+      if(mult > 0 && newVal > INT8_MAX - add) return 0;
+      if(mult < 0 && newVal < INT8_MIN - add) return 0;
+      newVal += add;
+      originalValue /= 10;
+      mult *= 10;
+    }
     return newVal;
   }
 
@@ -252,20 +316,27 @@ using namespace llvm;
       // Ignore values that are single digit as we don't encrypt the most significant digit leading to no point in modifying these
       if(oldValue < 10 && oldValue > -10) continue;
       // Gets new value to set as initializer of global
-      int64_t encryptedVal = encrypt(cast<ConstantInt>(global.getInitializer())->getSExtValue());
       if (type->isIntegerTy(8)) {
+        int64_t encryptedVal = encrypt8(cast<ConstantInt>(global.getInitializer())->getSExtValue());
+        if(encryptedVal == 0) continue;
         newValue = llvm::ConstantInt::get(llvm::Type::getInt8Ty(global.getContext()), encryptedVal);
         // Insert deobfuscate logic for each global
         deobfuscate(global, deobfuscateFunc8, llvm::Type::getInt8Ty(global.getContext()));
       } else if (type->isIntegerTy(16)) {
+        int64_t encryptedVal = encrypt16(cast<ConstantInt>(global.getInitializer())->getSExtValue());
+        if(encryptedVal == 0) continue;
         newValue = llvm::ConstantInt::get(llvm::Type::getInt16Ty(global.getContext()), encryptedVal);
         // Insert deobfuscate logic for each global
         deobfuscate(global, deobfuscateFunc16, llvm::Type::getInt16Ty(global.getContext()));
       } else if (type->isIntegerTy(32)) {
+        int64_t encryptedVal = encrypt32(cast<ConstantInt>(global.getInitializer())->getSExtValue());
+        if(encryptedVal == 0) continue;
         newValue = llvm::ConstantInt::get(llvm::Type::getInt32Ty(global.getContext()), encryptedVal);
         // Insert deobfuscate logic for each global
         deobfuscate(global, deobfuscateFunc32, llvm::Type::getInt32Ty(global.getContext()));
       } else if (type->isIntegerTy(64)) {
+        int64_t encryptedVal = encrypt64(cast<ConstantInt>(global.getInitializer())->getSExtValue());
+        if(encryptedVal == 0) continue;
         newValue = llvm::ConstantInt::get(llvm::Type::getInt64Ty(global.getContext()), encryptedVal);
         // Insert deobfuscate logic for each global
         deobfuscate(global, deobfuscateFunc64, llvm::Type::getInt64Ty(global.getContext()));
