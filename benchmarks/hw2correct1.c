@@ -4,6 +4,7 @@
 
 int8_t g = 15;
 int8_t z = 12;
+int32_t c = 18;
 char str[] = "Hello, World!";
 
 // int apple(){
@@ -13,7 +14,8 @@ char str[] = "Hello, World!";
 
 int main(){
 
-	printf("%s\n", str);
+	printf("hello\n");
+	printf("%d\n", c);
 	// int i = 0, k = 0;
 	// if(z == 12){
 	// 	g+=2;
