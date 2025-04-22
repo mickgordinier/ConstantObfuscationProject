@@ -1,0 +1,12 @@
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+int32_t c = 18;
+
+int main(){
+
+	printf("hello\n");
+	printf("%d\n", c);
+	return 0;
+}
