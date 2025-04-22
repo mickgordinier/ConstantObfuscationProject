@@ -24,9 +24,13 @@ echo -e "\n=== Performance Comparison ==="
 printf "%-30s %-20s %-20s\n" "Metric" "No Obfuscation" "With Obfuscation"
 echo "--------------------------------------------------------------------------"
 # Measure time
-NO_OBF_TIME=$( (/usr/bin/time -f "%e" ./${FILE}_no_obfuscation > /dev/null) 2>&1 )
+# NO_OBF_TIME=$( (/usr/bin/time -f "%e" ./${FILE}_no_obfuscation > /dev/null) 2>&1 )
 OBF_TIME=$( (/usr/bin/time -f "%e" ./${FILE}_obfuscation > /dev/null) 2>&1 )
-printf "%-30s %-20s %-20s\n" "Execution Time (s)" "$NO_OBF_TIME" "$OBF_TIME"
+
+
+#printf "%-30s %-20s %-20s\n" "Execution Time (s)" "$NO_OBF_TIME" "$OBF_TIME"
+printf "%-30s %-20s %-20s\n" "Execution Time (s)" "$OBF_TIME"
+
 # Binary size
 NO_OBF_SIZE=$(stat --format=%s ${FILE}_no_obfuscation)
 OBF_SIZE=$(stat --format=%s ${FILE}_obfuscation)
